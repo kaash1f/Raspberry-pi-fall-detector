@@ -1,0 +1,11 @@
+In order for this to work, you will need a raspberry pi, a raspberry pi HAILO AI hat, a webcam that connects to the raspberry pi, an active telegram account, and OLLAMA set up and fully running.
+STEP 0- Create a folder in hailo-rpi5-examples called daily_reports
+STEP 1- Move all of the downloaded code into the folder titles hailo-rpi5-examples. This folder won't be present if you didn't set the AI hat up properly.
+STEP 2- Go to "BotFather" on telegram, and create a bot that will notify you of the falls.
+STEP 3- Run the command cd hailo-rpi5-examples, and then the command nano .env. Replace the placeholders with your relevant telegram credentials.
+STEP 4- Open 2 new terminal windows, One for detecting the falls, and one for sending the alerts.
+Step 5- In both windows, run the following commands. cd hailo-rpi5-examples , source setup_env.sh
+STEP 6- In one terminal window, run the command python smart-fall-detection/fall-detector.py --input usb (you may also use rpi if you are using a camera with an rpi cable) 
+Step 7- In the other terminal window, run this command python smart-fall-detection/alert-sender.py --input usb
+Step 8- Once this is complete, run python smart-fall-detection/report-generator.py --input usb
+Step 9- the "Daily reports" folder will now contain all of the reports of falls from throughout the day
