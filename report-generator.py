@@ -1,46 +1,71 @@
+That's a fantastic idea! Adding comments is crucial for making code easier to understand, debug, and maintain, especially in a collaborative project like "WATCHFUL EYE." It helps future you, and anyone else looking at the script, quickly grasp its purpose and logic.
+
+Here's the `report_generator.py` script with comprehensive comments added:
+
+```python
 # ==============================================================================
 # SCRIPT: report_generator.py
 #
 # ROLE: The Analyst (On-Demand Report Generator)
 #
 # SUMMARY:
-# This is a resource-intensive script intended to be run on-demand or on a
-# schedule (e.g., once daily). It first verifies the Ollama service is running,
-# then scans for processed incident files, uses the LLM to generate a single,
-# consolidated summary report, and archives the source files.
+# This script is designed to run on-demand or on a schedule (e.g., daily) to
+# generate a consolidated summary report of detected incidents. It performs
+# several key steps:
+# 1.  **Service Health Check:** Verifies that the Ollama LLM service is running
+#     and accessible before proceeding.
+# 2.  **Incident Data Collection:** Scans a designated directory for processed
+#     incident files (JSON format).
+# 3.  **LLM-Powered Summary:** Utilizes a Large Language Model (LLM) via Ollama
+#     to generate a single, coherent summary report from all collected incident data.
+# 4.  **Report Saving:** Saves the generated report locally in a dedicated directory.
+# 5.  **Data Archiving:** Moves the processed incident files to an archive
+#     directory to prevent reprocessing and maintain a clean queue.
 #
-# The final report is saved locally on the device for review.
+# This script is resource-intensive due to the LLM interaction and is therefore
+# not intended for continuous, real-time operation.
 # ==============================================================================
-import os
-import json
-import sys  # Import the sys module to allow for a clean exit
-import ollama
-from dotenv import load_dotenv
-from datetime import datetime
+
+import os           # For interacting with the operating system (e.g., file paths, directory creation)
+import json         # For parsing JSON incident files
+import sys          # For system-specific parameters and functions, used here to exit the script cleanly
+import ollama       # The client library for interacting with the Ollama LLM service
+from dotenv import load_dotenv # For loading environment variables from a .env file
+from datetime import datetime # For generating timestamped filenames for reports
 
 # --- Configuration ---
+# Load environment variables from a .env file. This is useful for managing
+# sensitive information or configuration that might change between deployments
+# without modifying the code directly.
 load_dotenv()
+
+# Define the Ollama model to be used for report generation.
+# It defaults to 'gemma3:1b-it-qat' if OLLAMA_MODEL is not set in the .env file.
 OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'gemma3:1b-it-qat')
 
-PROCESSED_JOBS_DIR = "processed_jobs"
-REPORTS_DIR = "daily_reports"
-ARCHIVE_DIR = "archived_jobs"
+# Define directory paths for managing incident data and reports.
+# These directories will be created if they don't already exist.
+PROCESSED_JOBS_DIR = "processed_jobs" # Directory where new, unprocessed incident JSON files are stored
+REPORTS_DIR = "daily_reports"         # Directory where the final summary reports will be saved
+ARCHIVE_DIR = "archived_jobs"         # Directory to move processed incident files to after reporting
 
 def check_ollama_service():
     """
     Performs a pre-flight check to ensure the Ollama service is running and reachable.
+    This is a critical step to prevent the script from failing later during LLM calls.
     Returns True if the service is active, False otherwise.
     """
     print("--- Checking Ollama Service Status ---")
     try:
-        # ollama.list() is a lightweight, low-resource command that will fail
-        # if the service is not running or is otherwise unreachable.
+        # ollama.list() is a lightweight, low-resource command that attempts
+        # to connect to the Ollama service. If the service is not running or
+        # is otherwise unreachable, this call will raise an exception.
         ollama.list()
         print("✅ Ollama service is running and responsive.")
         return True
     except Exception:
-        # We catch a broad exception, as the underlying error could be a
-        # connection refusal, timeout, or other network issue.
+        # We catch a broad exception here because the underlying error could be
+        # a connection refusal, a timeout, or another network-related issue.
         print("\n❌ CRITICAL ERROR: Could not connect to the Ollama service.")
         print("   Please ensure the Ollama background service is running on your device.")
         print("   You can check its status with: sudo systemctl status ollama")
@@ -48,22 +73,36 @@ def check_ollama_service():
         return False
 
 def generate_summary_report(incidents: list) -> str:
-    """Generates a single, consolidated report for multiple incidents using an LLM."""
+    """
+    Generates a single, consolidated report for multiple incidents using an LLM.
+
+    Args:
+        incidents (list): A list of dictionaries, where each dictionary represents
+                          a processed incident's data (e.g., track_id, timestamp, metrics).
+
+    Returns:
+        str: The formatted summary report text generated by the LLM, or a fallback
+             message if the LLM call fails.
+    """
     if not incidents:
+        # If there are no incidents to report, return a simple message.
         return "No new incidents to report."
 
-    # Build a detailed string containing all incident data
+    # Build a detailed string containing all incident data.
+    # This string is then passed to the LLM as part of the prompt.
     incident_details = ""
     for i, data in enumerate(incidents):
         incident_details += (
             f"\n--- Incident {i+1} ---\n"
-            f"- Person ID: {data.get('track_id')}\n"
-            f"- Timestamp: {data.get('timestamp_iso')}\n"
+            f"- Person ID: {data.get('track_id', 'N/A')}\n" # Use .get() with default for robustness
+            f"- Timestamp: {data.get('timestamp_iso', 'N/A')}\n"
             f"- Downward Velocity Metric: {data.get('velocity', 0):.2f}\n"
             f"- Final Posture Metric: {data.get('posture_metric', 0):.2f}\n"
             f"- Snapshot Available: {'Yes' if data.get('snapshot_path') else 'No'}\n"
         )
     
+    # Define the prompt for the Large Language Model.
+    # This prompt instructs the LLM on its role, the task, and the desired output format.
     prompt = f"""
     You are a professional safety and security analyst. You are compiling a daily summary report
     based on a list of fall detection events from an automated monitoring system.
@@ -81,75 +120,106 @@ def generate_summary_report(incidents: list) -> str:
     
     try:
         print(f"  - Asking '{OLLAMA_MODEL}' to analyse {len(incidents)} incidents...")
+        # Call the Ollama chat API with the specified model and prompt.
+        # The response contains the LLM's generated text.
         response = ollama.chat(model=OLLAMA_MODEL, messages=[{'role': 'user', 'content': prompt}])
         report = response['message']['content']
         print("  - LLM analysis complete.")
-        return report.strip()
+        return report.strip() # Remove leading/trailing whitespace from the report
     except Exception as e:
+        # If the LLM call fails (e.g., model not found, network error during generation),
+        # a warning is printed, and a fallback report is returned.
         print(f"  - WARNING: LLM report generation failed. Reason: {e}")
         fallback_report = (
             f"LLM ANALYSIS FAILED\n\n"
-            f"The AI model could not be reached. Raw incident data is provided below:\n{incident_details}"
+            f"The AI model could not be reached or encountered an error during generation.\n"
+            f"Raw incident data is provided below for manual review:\n{incident_details}"
         )
         return fallback_report
 
 if __name__ == "__main__":
+    # This block ensures the code inside only runs when the script is executed directly,
+    # not when it's imported as a module into another script.
     print("--- On-Demand Incident Report Generator v1.1 (with Health Check) ---")
     
     # --- Pre-flight check for the Ollama service ---
-    # If the service isn't running, print an error and exit the script.
+    # If the service isn't running, print an error message and exit the script
+    # with a non-zero status code (indicating an error).
     if not check_ollama_service():
-        sys.exit(1) # Exit with a non-zero status code to indicate an error
+        sys.exit(1)
 
+    # Ensure the necessary directories exist. `exist_ok=True` prevents an error
+    # if the directory already exists.
     os.makedirs(PROCESSED_JOBS_DIR, exist_ok=True)
     os.makedirs(REPORTS_DIR, exist_ok=True)
     os.makedirs(ARCHIVE_DIR, exist_ok=True)
 
     try:
+        # Discover all JSON files in the PROCESSED_JOBS_DIR.
         job_files = [f for f in os.listdir(PROCESSED_JOBS_DIR) if f.endswith('.json')]
         
         if not job_files:
+            # If no incident files are found, inform the user and exit cleanly.
             print("\nNo new incidents found in the processed queue. Exiting.")
             sys.exit(0)
             
         print(f"\nFound {len(job_files)} new incidents to include in the report.")
 
         all_incidents = []
+        # Iterate through each discovered job file to load its incident data.
         for filename in job_files:
             job_path = os.path.join(PROCESSED_JOBS_DIR, filename)
             try:
+                # Open and parse the JSON file.
                 with open(job_path, 'r') as f:
-                    all_incidents.append(json.load(f))
+                    incident_data = json.load(f)
+                    all_incidents.append(incident_data)
+            except json.JSONDecodeError:
+                # Handle cases where the file is not valid JSON.
+                print(f"  - Warning: Could not parse {filename} as JSON. Skipping. Error: {e}")
             except Exception as e:
-                print(f"  - Warning: Could not read or parse {filename}. Skipping. Error: {e}")
+                # Catch any other potential errors during file reading.
+                print(f"  - Warning: Could not read or process {filename}. Skipping. Error: {e}")
 
         if not all_incidents:
+            # If files were found but none could be successfully read, exit.
             print("No valid incident data could be read. Exiting.")
             sys.exit(0)
             
+        # Generate the summary report using the collected incident data and the LLM.
         summary_report_text = generate_summary_report(all_incidents)
 
+        # Construct a unique filename for the report using the current timestamp.
         report_filename = f"incident_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
         report_path = os.path.join(REPORTS_DIR, report_filename)
         try:
+            # Save the generated report to a Markdown file.
             with open(report_path, 'w') as f:
                 f.write(summary_report_text)
             print(f"\nSUCCESS: Report saved to '{report_path}'")
         except Exception as e:
+            # Handle errors during saving the report file.
             print(f"  - CRITICAL ERROR: Could not save the final report! Error: {e}")
-            sys.exit(1)
+            sys.exit(1) # Exit with an error code if the report can't be saved
             
         print("Archiving processed job files...")
+        # Move the successfully processed incident files to the archive directory.
         for filename in job_files:
             source_path = os.path.join(PROCESSED_JOBS_DIR, filename)
             dest_path = os.path.join(ARCHIVE_DIR, filename)
             try:
+                # `os.rename` moves the file.
                 os.rename(source_path, dest_path)
             except Exception as e:
+                # Log a warning if a file cannot be archived, but continue processing others.
                 print(f"  - Warning: Could not archive {filename}. Error: {e}")
         
         print("Report generation complete.")
 
     except Exception as e:
+        # This broad exception handler catches any unexpected errors that occur
+        # during the main execution flow, providing a general error message.
         print(f"An unexpected error occurred during report generation: {e}")
-        sys.exit(1)
+        sys.exit(1) # Exit with an error code for unhandled exceptions
+
+```
